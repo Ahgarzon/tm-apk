@@ -25,18 +25,36 @@ def crash_labels(private_output):
         ('could not create root isolate', 'dart-root-isolate-failed'),
         ('unhandled exception', 'dart-unhandled-exception'),
         ('failed to load dynamic library', 'dart-library-load-failed'),
+        ('check failed:', 'native-failed-assertion'),
+        ('failed to create', 'initialization-failed'),
+        ('is not compatible', 'runtime-incompatible'),
+        ('permission denial', 'android-permission-denied'),
+        ('killing ', 'android-process-kill-observed'),
+        ('force stopping', 'android-force-stop-observed'),
+        ('anr in ', 'android-anr-observed'),
+        ('failed to initialize vulkan', 'vulkan-init-failed'),
+        ('error running isolate', 'dart-isolate-error'),
     ]
     return [label for needle, label in patterns if needle in value]
 
 
 def diagnose_crash(adb, env):
     try:
-        result = subprocess.run([str(x) for x in [*adb, 'logcat', '-d', '-t', '2500']],
+        result = subprocess.run([str(x) for x in [*adb, 'logcat', '-d', '-b', 'all']],
                                 env=env, capture_output=True, text=True, timeout=30)
         labels = crash_labels(result.stdout) if result.returncode == 0 else ['diagnostic-unavailable']
     except subprocess.TimeoutExpired:
         labels = ['diagnostic-timeout']
     print('Native diagnostic fixed labels: '+','.join(labels or ['unclassified']), flush=True)
+    try:
+        result = subprocess.run([str(x) for x in [*adb, 'shell', 'dumpsys', 'activity',
+            'exit-info', 'com.gopluss.tourmapsgo']], env=env, capture_output=True, text=True, timeout=30)
+        import re
+        reasons = sorted(set(re.findall(r'reason=(\d+)\s*\(', result.stdout)))
+        print('Native diagnostic Android numeric exit reasons: '+','.join(
+            x for x in reasons if x.isdecimal() and len(x) <= 2), flush=True)
+    except subprocess.TimeoutExpired:
+        print('Native exit diagnostic timed out.', flush=True)
 
 
 PHASES = {'previous-install-state', 'updated-install-state', 'launch',
