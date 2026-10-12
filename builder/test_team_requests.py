@@ -53,4 +53,6 @@ class TeamRequests(unittest.TestCase):
         for user_id in TEAM_IDS:
             self.assertIn('github.event.comment.user.id == '+str(user_id), value)
         self.assertLess(value.index('    if:'), value.index('    runs-on:'))
+        self.assertGreater(value.index('    concurrency:'), value.index('    if:'))
+        self.assertNotIn('\nconcurrency:', value)
         self.assertNotIn('${{ github.event.comment.body }}', value)
