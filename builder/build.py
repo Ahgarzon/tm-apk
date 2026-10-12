@@ -165,6 +165,36 @@ def prepare_tools():
     return env
 
 
+def prepare_source(source):
+    run('clone', ['git', 'clone', '--quiet', '--depth=1', '--single-branch', '--branch', BRANCH, SOURCE, SOURCE_DIR], env=SOURCE_ENV)
+    if output(['git', 'rev-parse', 'HEAD'], cwd=SOURCE_DIR) != source:
+        raise ValueError('Source changed during checkout; retry a fresh cycle')
+    resources()
+    run('linux-filemode', ['git', 'config', 'core.fileMode', 'false'], SOURCE_DIR)
+    env = prepare_tools()
+    android = ROOT / '.android'
+    android.mkdir(mode=0o700, exist_ok=True)
+    (android / 'debug.keystore').write_bytes(base64.b64decode(os.environ['TOURMAPS_PILOT_KEYSTORE_B64'], validate=True))
+    (android / 'debug.keystore').chmod(0o600)
+    cert = output([Path(env['JAVA_HOME']) / 'bin/keytool', '-J-Duser.language=en', '-list', '-v',
+                   '-keystore', android / 'debug.keystore', '-storepass', 'android', '-alias', 'androiddebugkey'], env=env)
+    digest = re.search(r'SHA256:\s*([A-Fa-f0-9:]+)', cert)
+    if not digest or digest[1].replace(':', '').lower() != CERT:
+        raise ValueError('Existing pilot certificate differs; no replacement key generated')
+    firebase = json.loads(os.environ['TOURMAPS_FIREBASE_ANDROID_JSON'])
+    if PACKAGE not in [x.get('client_info', {}).get('android_client_info', {}).get('package_name') for x in firebase.get('client', [])]:
+        raise ValueError('Wrong Android Firebase client')
+    (SOURCE_DIR / 'android/app/google-services.json').write_text(json.dumps(firebase))
+    flutter = ROOT / 'flutter/bin/flutter'
+    run('dependencies', [flutter, 'pub', 'get', '--enforce-lockfile'], SOURCE_DIR, env)
+    run('flutter-tests', [flutter, 'test', '--no-pub'], SOURCE_DIR, env)
+    run('node-tests', ['node', '--test', *sorted(glob.glob(str(SOURCE_DIR / 'tourmaps-ci/ios/*.test.mjs')))], SOURCE_DIR, env)
+    run('analysis', [flutter, 'analyze', '--no-pub', '--no-fatal-infos', '--no-fatal-warnings'], SOURCE_DIR, env)
+    if output(['git', 'status', '--porcelain'], cwd=SOURCE_DIR):
+        raise ValueError('Source mutated during preparation')
+    return env
+
+
 def main():
     global SOURCE_ENV, COORD_ENV
     SOURCE_ENV = {**os.environ, **key('TOURMAPS_SOURCE_SSH_KEY')}
@@ -187,6 +217,10 @@ def main():
                 if manifest.get('source_commit') == source and manifest.get('signing', {}).get('certificate_sha256') == CERT:
                     print('Current integrated source already has a verified pilot candidate; no rebuild.')
                     return
+    if os.environ.get('PREFLIGHT_ONLY', '').lower() == 'true':
+        prepare_source(source)
+        print('Cloud toolchains, existing pilot certificate and source tests passed. PREFLIGHT ONLY: no APK built, published or sent.')
+        return
     receipt = lease('acquire')
     if receipt.get('busy'):
         print('Another authorized Android release owns the central lease; queued for a later cycle.')
@@ -195,30 +229,8 @@ def main():
     thread.start()
     try:
         number = maximum + 1
-        run('clone', ['git', 'clone', '--quiet', '--depth=1', '--single-branch', '--branch', BRANCH, SOURCE, SOURCE_DIR], env=SOURCE_ENV)
-        if output(['git', 'rev-parse', 'HEAD'], cwd=SOURCE_DIR) != source:
-            raise ValueError('Source changed during checkout; retry a fresh cycle')
-        resources()
-        run('linux-filemode', ['git', 'config', 'core.fileMode', 'false'], SOURCE_DIR)
-        env = prepare_tools()
-        android = ROOT / '.android'
-        android.mkdir(mode=0o700, exist_ok=True)
-        (android / 'debug.keystore').write_bytes(base64.b64decode(os.environ['TOURMAPS_PILOT_KEYSTORE_B64'], validate=True))
-        (android / 'debug.keystore').chmod(0o600)
-        cert = output([Path(env['JAVA_HOME']) / 'bin/keytool', '-J-Duser.language=en', '-list', '-v',
-                       '-keystore', android / 'debug.keystore', '-storepass', 'android', '-alias', 'androiddebugkey'], env=env)
-        digest = re.search(r'SHA256:\s*([A-Fa-f0-9:]+)', cert)
-        if not digest or digest[1].replace(':', '').lower() != CERT:
-            raise ValueError('Existing pilot certificate differs; no replacement key generated')
-        firebase = json.loads(os.environ['TOURMAPS_FIREBASE_ANDROID_JSON'])
-        if PACKAGE not in [x.get('client_info', {}).get('android_client_info', {}).get('package_name') for x in firebase.get('client', [])]:
-            raise ValueError('Wrong Android Firebase client')
-        (SOURCE_DIR / 'android/app/google-services.json').write_text(json.dumps(firebase))
+        env = prepare_source(source)
         flutter = ROOT / 'flutter/bin/flutter'
-        run('dependencies', [flutter, 'pub', 'get', '--enforce-lockfile'], SOURCE_DIR, env)
-        run('flutter-tests', [flutter, 'test', '--no-pub'], SOURCE_DIR, env)
-        run('node-tests', ['node', '--test', *sorted(glob.glob(str(SOURCE_DIR / 'tourmaps-ci/ios/*.test.mjs')))], SOURCE_DIR, env)
-        run('analysis', [flutter, 'analyze', '--no-pub', '--no-fatal-infos', '--no-fatal-warnings'], SOURCE_DIR, env)
         print('Source tests and error-level analysis passed; compiling compatible Android pilot.')
         lease('check')
         run('apk-build', [flutter, 'build', 'apk', '--release', '--no-pub', '--build-name='+VERSION,
