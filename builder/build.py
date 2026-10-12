@@ -62,7 +62,17 @@ def output(args, cwd=None, env=None):
     r = subprocess.run([str(x) for x in args], cwd=cwd, env=env, capture_output=True,
                        text=True, timeout=90)
     if r.returncode:
-        raise RuntimeError('Verification command failed; no private output exposure')
+        text = r.stderr.lower()
+        categories = {'permission denied': 'scoped SSH permission denied',
+                      'host key verification failed': 'SSH host verification failed',
+                      'error in libcrypto': 'SSH private key encoding rejected',
+                      'connection timed out': 'SSH/network timeout',
+                      'connection refused': 'SSH connection refused',
+                      'could not resolve hostname': 'SSH hostname resolution failed',
+                      'not a git repository': 'Git directory not initialized',
+                      'repository not found': 'scoped source repository not accessible'}
+        category = next((value for needle, value in categories.items() if needle in text), 'verification subprocess failed')
+        raise RuntimeError(category + ' (command '+Path(str(args[0])).name+'); no private output exposure')
     return r.stdout.strip()
 
 
