@@ -63,9 +63,10 @@ def output(args, cwd=None, env=None):
                        text=True, timeout=90)
     if r.returncode:
         text = r.stderr.lower()
-        categories = {'permission denied': 'scoped SSH permission denied',
+        categories = {'error in libcrypto': 'SSH private key encoding rejected',
+                      'invalid format': 'SSH private key format rejected',
+                      'permission denied': 'scoped SSH permission denied',
                       'host key verification failed': 'SSH host verification failed',
-                      'error in libcrypto': 'SSH private key encoding rejected',
                       'connection timed out': 'SSH/network timeout',
                       'connection refused': 'SSH connection refused',
                       'could not resolve hostname': 'SSH hostname resolution failed',
@@ -89,11 +90,12 @@ def download(url, destination, expected=None):
 
 def key(name):
     file = ROOT / name
-    value = os.environ[name]
+    value = os.environ[name].replace('\r\n', '\n')
     if not value.startswith('-----BEGIN OPENSSH PRIVATE KEY-----'):
         raise ValueError('Required scoped source/coordination capability absent')
     file.write_text(value.rstrip()+'\n')
     file.chmod(0o600)
+    output(['ssh-keygen', '-y', '-f', file])
     return {'GIT_SSH_COMMAND': f'ssh -i {file} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile={TOOLS / "github_known_hosts"}'}
 
 
