@@ -4,6 +4,13 @@ from channels import CHANNELS, identity, next_number, version_name
 
 
 class Channels(unittest.TestCase):
+    def test_native_permission_regression_is_required_before_compilation(self):
+        code = (Path(__file__).parent / 'build.py').read_text()
+        self.assertIn("run('microphone-policy-compile'", code)
+        self.assertIn("run('microphone-policy-tests'", code)
+        self.assertLess(code.index("run('microphone-policy-tests'"), code.index("run('apk-build'"))
+        self.assertIn("'native_permission_policy': 'passed'", code)
+
     def test_signature_channels_are_not_interchangeable(self):
         self.assertNotEqual(CHANNELS['pilot']['cert'], CHANNELS['original']['cert'])
         self.assertEqual(CHANNELS['pilot']['compatible_with'], 54)

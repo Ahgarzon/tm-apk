@@ -23,6 +23,7 @@ def crash_labels(private_output):
         ('libjnidispatch', 'jna-library'), ('libvosk', 'vosk-library'),
         ('libflutter.so', 'flutter-engine'), ('impeller', 'impeller-renderer'),
         ('vulkan', 'vulkan-renderer'), ('outofmemoryerror', 'java-memory'),
+        ('stackoverflowerror', 'java-stack-overflow'),
         ('could not create root isolate', 'dart-root-isolate-failed'),
         ('unhandled exception', 'dart-unhandled-exception'),
         ('failed to load dynamic library', 'dart-library-load-failed'),
