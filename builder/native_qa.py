@@ -1,6 +1,7 @@
 """Bounded ADB probes; public errors are fixed labels, never private output."""
 import subprocess
 import time
+import re
 
 from diagnostics import failure_category
 
@@ -34,8 +35,33 @@ def crash_labels(private_output):
         ('anr in ', 'android-anr-observed'),
         ('failed to initialize vulkan', 'vulkan-init-failed'),
         ('error running isolate', 'dart-isolate-error'),
+        ('geolocatorforegroundservice', 'geolocator-foreground-service'),
+        ('com.pravera.flutter_foreground_task', 'flutter-foreground-service'),
+        ('starting fgs with type location', 'location-foreground-service-start'),
+        ('foreground_service_location', 'location-foreground-permission'),
+        ('while-in-use', 'while-in-use-permission'),
+        ('com.google.android.gms.maps', 'maps-sdk'),
+        ('com.google.firebase', 'firebase-sdk'),
+        ('illegalstateexception', 'java-illegal-state'),
+        ('illegalargumentexception', 'java-illegal-argument'),
+        ('foregroundservicedidnotstartintimeexception', 'foreground-service-timeout'),
     ]
     return [label for needle, label in patterns if needle in value]
+
+
+def target_crash_output(private_output):
+    """Crash buffer only: retain blocks belonging to this fixed application."""
+    blocks = re.split(r'(?=\S+\s+\S+\s+\d+\s+\d+\s+\S\s+AndroidRuntime: FATAL EXCEPTION)', private_output)
+    return '\n'.join(x for x in blocks if re.search(
+        r'(?:Process:|Cmdline:)\s+com\.gopluss\.tourmapsgo(?:,|\s|$)', x))
+
+
+def assert_no_target_crash(adb, env):
+    value = native_output([*adb, 'logcat', '-d', '-b', 'crash'], env, 'crash-check')
+    target = target_crash_output(value)
+    if target:
+        print('Target application fatal fixed labels: '+','.join(crash_labels(target) or ['unclassified']), flush=True)
+        raise RuntimeError('Target application crashed; no publication')
 
 
 def diagnose_crash(adb, env):
@@ -46,10 +72,14 @@ def diagnose_crash(adb, env):
     except subprocess.TimeoutExpired:
         labels = ['diagnostic-timeout']
     print('Native diagnostic fixed labels: '+','.join(labels or ['unclassified']), flush=True)
+    crashes = subprocess.run([str(x) for x in [*adb, 'logcat', '-d', '-b', 'crash']],
+                             env=env, capture_output=True, text=True, timeout=30)
+    target = target_crash_output(crashes.stdout) if crashes.returncode == 0 else ''
+    print('Target application fatal fixed labels: '+','.join(
+        crash_labels(target) if target else ['none-observed']), flush=True)
     try:
         result = subprocess.run([str(x) for x in [*adb, 'shell', 'dumpsys', 'activity',
             'exit-info', 'com.gopluss.tourmapsgo']], env=env, capture_output=True, text=True, timeout=30)
-        import re
         reasons = sorted(set(re.findall(r'reason=(\d+)\s*\(', result.stdout)))
         print('Native diagnostic Android numeric exit reasons: '+','.join(
             x for x in reasons if x.isdecimal() and len(x) <= 2), flush=True)
