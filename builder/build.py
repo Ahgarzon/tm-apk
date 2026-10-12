@@ -143,7 +143,7 @@ def resources():
 
 
 def prepare_tools():
-    metadata = request('https://storage.googleapis.com/flutter_infra_release/flutter/releases/releases_linux.json')
+    metadata = request('https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json')
     matches = [x for x in metadata['releases'] if x['version'] == FLUTTER and x['channel'] == 'stable']
     if len(matches) != 1 or not re.fullmatch(r'[a-f0-9]{64}', matches[0]['sha256']):
         raise ValueError('Pinned official Flutter not available')
