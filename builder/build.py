@@ -22,6 +22,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from diagnostics import failure_category
+from native_qa import native_output, wait_until_booted
 
 CHANNEL = 'Ahgarzon/tm-apk'
 SOURCE = 'git@github.com:Ahgarzon/tourmaps-mobile-ios.git'
@@ -232,33 +233,33 @@ def native_smoke(apk, env, activity):
     adb = [sdk / 'platform-tools/adb', '-s', 'emulator-5584']
     try:
         run('adb-wait', [*adb, 'wait-for-device'], env=env, timeout=180)
-        until = time.monotonic() + 240
-        while output([*adb, 'shell', 'getprop', 'sys.boot_completed'], env=env) != '1':
-            if time.monotonic() >= until or process.poll() is not None:
-                raise RuntimeError('Native boot failed; no untested publication')
-            time.sleep(2)
+        wait_until_booted(adb, env, process)
+        print('Native QA: isolated emulator fully booted.', flush=True)
         previous = ROOT / 'previous-pilot54.apk'
         download('https://github.com/Ahgarzon/tm-apk/releases/download/v1.0.30-tourmaps-pilot54/TourMaps-Go-1.0.30%2B54-candidata.apk',
                  previous, 'c1c8b4c00d3e9c2f6b60551f4e498435ff509a1b7f5a8dcb1837d90dfd69ea2d')
         run('install-previous54', [*adb, 'install', str(previous)], env=env, timeout=120)
-        old = output([*adb, 'shell', 'dumpsys', 'package', PACKAGE], env=env)
+        print('Native QA: previous pilot54 installed.', flush=True)
+        old = native_output([*adb, 'shell', 'dumpsys', 'package', PACKAGE], env, 'previous-install-state')
         first = re.search(r'firstInstallTime=(.+)', old)
         run('update-without-uninstall', [*adb, 'install', '-r', str(apk)], env=env, timeout=120)
-        current = output([*adb, 'shell', 'dumpsys', 'package', PACKAGE], env=env)
+        current = native_output([*adb, 'shell', 'dumpsys', 'package', PACKAGE], env, 'updated-install-state')
         next_first = re.search(r'firstInstallTime=(.+)', current)
         if not first or not next_first or first[1] != next_first[1]:
             raise RuntimeError('Native update identity changed; no publication')
+        print('Native QA: update without uninstall or data clear passed.', flush=True)
         run('clear-own-avd-log', [*adb, 'logcat', '-c'], env=env)
-        launch = output([*adb, 'shell', 'am', 'start', '-W', '-n', PACKAGE + '/' + activity], env=env)
+        launch = native_output([*adb, 'shell', 'am', 'start', '-W', '-n', PACKAGE + '/' + activity], env, 'launch')
         if 'Status: ok' not in launch or 'Error:' in launch:
             raise RuntimeError('Native launch failed; no publication')
         time.sleep(20)
-        pid = output([*adb, 'shell', 'pidof', PACKAGE], env=env)
+        pid = native_output([*adb, 'shell', 'pidof', PACKAGE], env, 'application-process')
         if not re.fullmatch(r'\d+', pid):
             raise RuntimeError('Native app did not remain alive')
-        crashes = output([*adb, 'logcat', '-d', '-b', 'crash', '--pid='+pid], env=env)
+        crashes = native_output([*adb, 'logcat', '-d', '-b', 'crash', '--pid='+pid], env, 'crash-check')
         if 'FATAL EXCEPTION' in crashes:
             raise RuntimeError('Native app crash; no publication')
+        print('Native QA: app launched and remained alive without fatal crash.', flush=True)
         lease('check', 'qa-isolated')
         return {'native_runtime_smoke': True, 'update_from': '1.0.30+54',
                 'without_uninstall_or_data_clear': True, 'android_api': 35,
