@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tarfile
 import threading
+import time
 import urllib.parse
 import urllib.request
 import zipfile
@@ -37,6 +38,7 @@ TOOLS = Path(__file__).resolve().parent
 LOCK = threading.Lock()
 STOP = threading.Event()
 FAILED_RENEWAL = threading.Event()
+QA_OWNED = False
 
 
 def request(url, data=None, token=None):
@@ -50,10 +52,11 @@ def request(url, data=None, token=None):
         return json.load(r)
 
 
-def run(label, args, cwd=None, env=None, timeout=1800):
+def run(label, args, cwd=None, env=None, timeout=1800, data=None):
     with (LOG / (label + '.log')).open('ab') as log:
         r = subprocess.run([str(x) for x in args], cwd=cwd, env=env,
-                           stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
+                           stdout=log, stderr=subprocess.STDOUT, timeout=timeout,
+                           input=data, text=data is not None)
     if r.returncode:
         raise RuntimeError(label + ' failed; no APK promotion or private log exposure')
 
@@ -99,11 +102,12 @@ def key(name):
     return {'GIT_SSH_COMMAND': f'ssh -i {file} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile={TOOLS / "github_known_hosts"}'}
 
 
-def lease(action):
+def lease(action, domain='release-android'):
     with LOCK:
         env = {**os.environ, **COORD_ENV}
         text = output([sys.executable, TOOLS / 'coordination.py', action,
-                       '--repo', ROOT / 'coordination.git', '--lease-file', ROOT / 'lease.json'], env=env)
+                       '--repo', ROOT / 'coordination.git', '--domain', domain,
+                       '--lease-file', ROOT / ('lease-'+domain+'.json')], env=env)
         return json.loads(text)
 
 
@@ -111,6 +115,8 @@ def renew():
     while not STOP.wait(300):
         try:
             lease('renew')
+            if QA_OWNED:
+                lease('renew', 'qa-isolated')
         except Exception:
             FAILED_RENEWAL.set()
             return
@@ -195,8 +201,70 @@ def prepare_source(source):
     return env
 
 
+def native_smoke(apk, env, activity):
+    """Dedicated ephemeral VM/AVD only; update the old pilot without uninstall."""
+    lease('check', 'qa-isolated')
+    sdk = Path(env['ANDROID_HOME'])
+    image = 'system-images;android-35;google_apis;x86_64'
+    run('emulator-sdk', [sdk / 'cmdline-tools/latest/bin/sdkmanager', 'emulator', image], env=env)
+    if not Path('/dev/kvm').exists():
+        raise RuntimeError('Cloud native QA needs KVM; no untested publication')
+    run('ephemeral-kvm-permission', ['sudo', '-n', 'chmod', 'a+rw', '/dev/kvm'])
+    env = {**env, 'ANDROID_AVD_HOME': str(ROOT / 'avd')}
+    Path(env['ANDROID_AVD_HOME']).mkdir(mode=0o700, exist_ok=True)
+    run('create-isolated-avd', [sdk / 'cmdline-tools/latest/bin/avdmanager', 'create', 'avd',
+        '--name', 'TourMaps_Cloud', '--package', image, '--device', 'pixel_6'], env=env, data='no\n')
+    log = (LOG / 'emulator.log').open('ab')
+    process = subprocess.Popen([str(sdk / 'emulator/emulator'), '-avd', 'TourMaps_Cloud',
+        '-port', '5584', '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot',
+        '-gpu', 'swiftshader_indirect', '-memory', '2048', '-cores', '2', '-accel', 'on'],
+        env=env, stdout=log, stderr=subprocess.STDOUT)
+    adb = [sdk / 'platform-tools/adb', '-s', 'emulator-5584']
+    try:
+        run('adb-wait', [*adb, 'wait-for-device'], env=env, timeout=180)
+        until = time.monotonic() + 240
+        while output([*adb, 'shell', 'getprop', 'sys.boot_completed'], env=env) != '1':
+            if time.monotonic() >= until or process.poll() is not None:
+                raise RuntimeError('Native boot failed; no untested publication')
+            time.sleep(2)
+        previous = ROOT / 'previous-pilot54.apk'
+        download('https://github.com/Ahgarzon/tm-apk/releases/download/v1.0.30-tourmaps-pilot54/TourMaps-Go-1.0.30%2B54-candidata.apk',
+                 previous, 'c1c8b4c00d3e9c2f6b60551f4e498435ff509a1b7f5a8dcb1837d90dfd69ea2d')
+        run('install-previous54', [*adb, 'install', str(previous)], env=env, timeout=120)
+        old = output([*adb, 'shell', 'dumpsys', 'package', PACKAGE], env=env)
+        first = re.search(r'firstInstallTime=(.+)', old)
+        run('update-without-uninstall', [*adb, 'install', '-r', str(apk)], env=env, timeout=120)
+        current = output([*adb, 'shell', 'dumpsys', 'package', PACKAGE], env=env)
+        next_first = re.search(r'firstInstallTime=(.+)', current)
+        if not first or not next_first or first[1] != next_first[1]:
+            raise RuntimeError('Native update identity changed; no publication')
+        run('clear-own-avd-log', [*adb, 'logcat', '-c'], env=env)
+        launch = output([*adb, 'shell', 'am', 'start', '-W', '-n', PACKAGE + '/' + activity], env=env)
+        if 'Status: ok' not in launch or 'Error:' in launch:
+            raise RuntimeError('Native launch failed; no publication')
+        time.sleep(20)
+        pid = output([*adb, 'shell', 'pidof', PACKAGE], env=env)
+        if not re.fullmatch(r'\d+', pid):
+            raise RuntimeError('Native app did not remain alive')
+        crashes = output([*adb, 'logcat', '-d', '-b', 'crash', '--pid='+pid], env=env)
+        if 'FATAL EXCEPTION' in crashes:
+            raise RuntimeError('Native app crash; no publication')
+        lease('check', 'qa-isolated')
+        return {'native_runtime_smoke': True, 'update_from': '1.0.30+54',
+                'without_uninstall_or_data_clear': True, 'android_api': 35,
+                'physical_device': False, 'gps_voice_real_acceptance': False}
+    finally:
+        with contextlib.suppress(Exception):
+            subprocess.run([str(x) for x in [*adb, 'emu', 'kill']], env=env, capture_output=True, timeout=10)
+        with contextlib.suppress(Exception):
+            process.wait(timeout=15)
+        if process.poll() is None:
+            process.terminate()
+        log.close()
+
+
 def main():
-    global SOURCE_ENV, COORD_ENV
+    global SOURCE_ENV, COORD_ENV, QA_OWNED
     SOURCE_ENV = {**os.environ, **key('TOURMAPS_SOURCE_SSH_KEY')}
     COORD_ENV = key('TOURMAPS_COORDINATION_SSH_KEY')
     source = latest_source()
@@ -228,6 +296,11 @@ def main():
     thread = threading.Thread(target=renew, daemon=True)
     thread.start()
     try:
+        qa_receipt = lease('acquire', 'qa-isolated')
+        if qa_receipt.get('busy'):
+            print('Another authorized native QA owns its reservation; no duplicate build or publication.')
+            return
+        QA_OWNED = True
         number = maximum + 1
         env = prepare_source(source)
         flutter = ROOT / 'flutter/bin/flutter'
@@ -241,9 +314,14 @@ def main():
         signed = output([build_tools / 'apksigner', 'verify', '--print-certs', apk], env=env)
         if CERT not in signed.lower():
             raise ValueError('APK certificate mismatch')
-        badging = output([build_tools / 'aapt', 'dump', 'badging', apk], env=env).splitlines()[0]
+        badging_all = output([build_tools / 'aapt', 'dump', 'badging', apk], env=env)
+        badging = badging_all.splitlines()[0]
         if not all(x in badging for x in [f"name='{PACKAGE}'", f"versionCode='{number}'", f"versionName='{VERSION}'"]):
             raise ValueError('APK identity mismatch')
+        activity = re.search(r"launchable-activity: name='([^']+)'", badging_all)
+        if not activity:
+            raise ValueError('APK launch activity missing')
+        qa = native_smoke(apk, env, activity[1])
         # Linux execute-bit normalization is local Git configuration, not a source edit.
         if output(['git', 'status', '--porcelain'], cwd=SOURCE_DIR):
             raise ValueError('Source mutated during build')
@@ -257,8 +335,7 @@ def main():
                     'clean_tree_at_build': True, 'channel': 'pilot-not-Play-Store',
                     'builder_run': os.environ['GITHUB_RUN_URL'],
                     'signing': {'signature_verified': True, 'certificate_sha256': CERT, 'compatible_with': 54},
-                    'qa': {'flutter_tests': 'passed', 'node_tests': 'passed', 'analysis_errors': 0,
-                           'physical_device': False, 'native_runtime_smoke': False},
+                    'qa': {'flutter_tests': 'passed', 'node_tests': 'passed', 'analysis_errors': 0, **qa},
                     'artifact': {'filename': filename, 'bytes': asset.stat().st_size, 'sha256': sha,
                                  'url': f'https://github.com/{CHANNEL}/releases/download/{tag}/'+urllib.parse.quote(filename, safe='')}}
         manifest_file = ROOT / 'tourmaps-release.json'
@@ -283,6 +360,9 @@ def main():
     finally:
         STOP.set()
         thread.join(timeout=30)
+        if QA_OWNED:
+            with contextlib.suppress(Exception):
+                lease('release', 'qa-isolated')
         with contextlib.suppress(Exception):
             lease('release')
 
