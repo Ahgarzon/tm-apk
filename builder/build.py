@@ -23,6 +23,7 @@ import urllib.request
 import zipfile
 from diagnostics import failure_category
 from native_qa import native_output, wait_until_booted
+from team_requests import check_environment
 
 CHANNEL = 'Ahgarzon/tm-apk'
 SOURCE = 'git@github.com:Ahgarzon/tourmaps-mobile-ios.git'
@@ -276,6 +277,7 @@ def native_smoke(apk, env, activity):
 
 def main():
     global SOURCE_ENV, COORD_ENV, QA_OWNED
+    check_environment()
     SOURCE_ENV = {**os.environ, **key('TOURMAPS_SOURCE_SSH_KEY')}
     COORD_ENV = key('TOURMAPS_COORDINATION_SSH_KEY')
     source = latest_source()
