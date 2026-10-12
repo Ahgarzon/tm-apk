@@ -11,6 +11,18 @@ def result(code=0, stdout='', stderr=''):
 
 
 class NativeQA(unittest.TestCase):
+    def test_crash_restart_does_not_hide_previous_application_crash(self):
+        app = ('10-12 12:00:00.000 123 123 E AndroidRuntime: FATAL EXCEPTION: main\n'
+               '10-12 12:00:00.001 123 123 E AndroidRuntime: Process: com.gopluss.tourmapsgo, PID: 123\n'
+               '10-12 12:00:00.002 123 123 E AndroidRuntime: java.lang.SecurityException private-token\n')
+        other = ('10-12 12:00:01.000 456 456 E AndroidRuntime: FATAL EXCEPTION: main\n'
+                 '10-12 12:00:01.001 456 456 E AndroidRuntime: Process: unrelated.service, PID: 456\n')
+        self.assertEqual(native_qa.target_crash_output(other), '')
+        self.assertIn('private-token', native_qa.target_crash_output(app+other))
+        with patch('native_qa.native_output', return_value=app+other):
+            with self.assertRaisesRegex(RuntimeError, 'Target application crashed'):
+                native_qa.assert_no_target_crash(['adb'], {})
+
     def test_crash_vocabulary_never_returns_private_fragments(self):
         labels = native_qa.crash_labels('FATAL EXCEPTION private-key /private/code '
             'UnsatisfiedLinkError dlopen failed libjnidispatch.so')

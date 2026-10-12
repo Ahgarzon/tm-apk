@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from diagnostics import failure_category
-from native_qa import native_output, wait_until_booted, diagnose_crash
+from native_qa import native_output, wait_until_booted, diagnose_crash, assert_no_target_crash
 from team_requests import check_environment
 from channels import CHANNELS, next_number, version_name, identity
 
@@ -262,9 +262,7 @@ def native_smoke(apk, env, activity, channel='pilot'):
             raise
         if not re.fullmatch(r'\d+', pid):
             raise RuntimeError('Native app did not remain alive')
-        crashes = native_output([*adb, 'logcat', '-d', '-b', 'crash', '--pid='+pid], env, 'crash-check')
-        if 'FATAL EXCEPTION' in crashes:
-            raise RuntimeError('Native app crash; no publication')
+        assert_no_target_crash(adb, env)
         print('Native QA: app launched and remained alive without fatal crash.', flush=True)
         lease('check', 'qa-isolated')
         return {'native_runtime_smoke': True, 'update_from': baseline['baseline'],
