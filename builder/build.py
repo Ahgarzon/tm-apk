@@ -206,6 +206,13 @@ def prepare_source(source):
     run('dependencies', [flutter, 'pub', 'get', '--enforce-lockfile'], SOURCE_DIR, env)
     run('flutter-tests', [flutter, 'test', '--no-pub'], SOURCE_DIR, env)
     run('node-tests', ['node', '--test', *sorted(glob.glob(str(SOURCE_DIR / 'tourmaps-ci/ios/*.test.mjs')))], SOURCE_DIR, env)
+    native_tests = ROOT / 'permission-unit-tests'
+    native_tests.mkdir(mode=0o700, exist_ok=True)
+    run('microphone-policy-compile', [Path(env['JAVA_HOME']) / 'bin/javac', '-d', native_tests,
+        SOURCE_DIR / 'android/app/src/main/java/com/gopluss/tourmapsgo/TourmapsMicrophonePermissionGate.java',
+        SOURCE_DIR / 'tourmaps-ci/android/TourmapsMicrophonePermissionGateTest.java'], env=env)
+    run('microphone-policy-tests', [Path(env['JAVA_HOME']) / 'bin/java', '-cp', native_tests,
+        'com.gopluss.tourmapsgo.TourmapsMicrophonePermissionGateTest'], env=env)
     run('analysis', [flutter, 'analyze', '--no-pub', '--no-fatal-infos', '--no-fatal-warnings'], SOURCE_DIR, env)
     if output(['git', 'status', '--porcelain'], cwd=SOURCE_DIR):
         raise ValueError('Source mutated during preparation')
@@ -262,7 +269,11 @@ def native_smoke(apk, env, activity, channel='pilot'):
             raise
         if not re.fullmatch(r'\d+', pid):
             raise RuntimeError('Native app did not remain alive')
-        assert_no_target_crash(adb, env)
+        try:
+            assert_no_target_crash(adb, env)
+        except RuntimeError:
+            diagnose_crash(adb, env, channel)
+            raise
         print('Native QA: app launched and remained alive without fatal crash.', flush=True)
         lease('check', 'qa-isolated')
         return {'native_runtime_smoke': True, 'update_from': baseline['baseline'],
@@ -369,7 +380,8 @@ def main():
                 'builder_run': os.environ['GITHUB_RUN_URL'],
                 'signing': {'signature_verified': True, 'certificate_sha256': cert,
                             'compatible_with': CHANNELS[channel]['compatible_with']},
-                'qa': {'flutter_tests': 'passed', 'node_tests': 'passed', 'analysis_errors': 0, **qa},
+                'qa': {'flutter_tests': 'passed', 'node_tests': 'passed',
+                       'native_permission_policy': 'passed', 'analysis_errors': 0, **qa},
                 'artifact': {'filename': filename, 'bytes': asset.stat().st_size, 'sha256': sha,
                     'url': f'https://github.com/{CHANNEL}/releases/download/{tag}/'+urllib.parse.quote(filename, safe='')}}
             manifest_file = ROOT / channel / 'tourmaps-release.json'

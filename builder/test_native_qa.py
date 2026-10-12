@@ -30,6 +30,10 @@ class NativeQA(unittest.TestCase):
                                   'native-library-load-failed', 'jna-library'])
         self.assertEqual(native_qa.crash_labels('secret-token'), [])
 
+    def test_permission_stack_overflow_has_a_fixed_private_safe_label(self):
+        self.assertEqual(native_qa.crash_labels('java.lang.StackOverflowError private-stack'),
+                         ['java-stack-overflow'])
+
     def setUp(self):
         self.adb = ['adb', '-s', 'isolated-emulator']
         self.emulator = Mock()
