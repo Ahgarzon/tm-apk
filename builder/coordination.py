@@ -88,7 +88,7 @@ def main():
         subprocess.run(['git', 'init', '--bare', str(repo)], check=True, capture_output=True)
         git(repo, 'remote', 'add', 'origin', 'git@github.com:Ahgarzon/tourmaps-aios.git')
         git(repo, 'config', 'user.name', 'TourMaps scoped builder (Ahgarzon delegated)')
-        git(repo, 'config', 'user.email', '14477298+Ahgarzon@users.noreply.github.com')
+        git(repo, 'config', 'user.email', 'tourmaps-builder@users.noreply.github.com')
     if git(repo, 'remote', 'get-url', 'origin') != 'git@github.com:Ahgarzon/tourmaps-aios.git':
         raise ValueError('Wrong scoped coordinator')
     lease = json.loads(a.lease_file.read_text())['lease'] if a.action != 'acquire' else None
