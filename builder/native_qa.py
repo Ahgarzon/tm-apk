@@ -64,7 +64,7 @@ def assert_no_target_crash(adb, env):
         raise RuntimeError('Target application crashed; no publication')
 
 
-def diagnose_crash(adb, env):
+def diagnose_crash(adb, env, channel='pilot'):
     try:
         result = subprocess.run([str(x) for x in [*adb, 'logcat', '-d', '-b', 'all']],
                                 env=env, capture_output=True, text=True, timeout=30)
@@ -77,6 +77,24 @@ def diagnose_crash(adb, env):
     target = target_crash_output(crashes.stdout) if crashes.returncode == 0 else ''
     print('Target application fatal fixed labels: '+','.join(
         crash_labels(target) if target else ['none-observed']), flush=True)
+    # Detailed target-only diagnostics go via a restricted forced-command key
+    # to private VPS storage, never Actions logs/artifacts or public Git.
+    if target:
+        try:
+            import build
+            import json
+            import os
+            build.key('TOURMAPS_DIAGNOSTIC_SSH_KEY')
+            payload = json.dumps({'run_id': os.environ['GITHUB_RUN_ID'],
+                                  'channel': channel, 'target_crash': target[:180000]})
+            received = subprocess.run(['ssh', '-T', '-i', str(build.ROOT / 'TOURMAPS_DIAGNOSTIC_SSH_KEY'),
+                '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'BatchMode=yes',
+                '-o', 'ConnectTimeout=15', '-o', 'UserKnownHostsFile='+str(build.TOOLS / 'vps_known_hosts'),
+                'aios@62.171.166.79', 'receive-only'], input=payload, capture_output=True,
+                text=True, timeout=45)
+            print('Private target diagnostic received='+str(received.returncode == 0), flush=True)
+        except Exception:
+            print('Private diagnostic transport unavailable; no public fallback.', flush=True)
     try:
         result = subprocess.run([str(x) for x in [*adb, 'shell', 'dumpsys', 'activity',
             'exit-info', 'com.gopluss.tourmapsgo']], env=env, capture_output=True, text=True, timeout=30)

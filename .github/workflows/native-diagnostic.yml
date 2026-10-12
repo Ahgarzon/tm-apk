@@ -24,4 +24,5 @@ jobs:
       - name: Probe public baselines; no private source or signing secrets
         env:
           TOURMAPS_COORDINATION_SSH_KEY: ${{ secrets.TOURMAPS_COORDINATION_SSH_KEY }}
+          TOURMAPS_DIAGNOSTIC_SSH_KEY: ${{ secrets.TOURMAPS_DIAGNOSTIC_SSH_KEY }}
         run: python3 builder/probe.py

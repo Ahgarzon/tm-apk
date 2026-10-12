@@ -258,7 +258,7 @@ def native_smoke(apk, env, activity, channel='pilot'):
         try:
             pid = native_output([*adb, 'shell', 'pidof', PACKAGE], env, 'application-process')
         except RuntimeError:
-            diagnose_crash(adb, env)
+            diagnose_crash(adb, env, channel)
             raise
         if not re.fullmatch(r'\d+', pid):
             raise RuntimeError('Native app did not remain alive')
