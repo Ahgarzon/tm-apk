@@ -21,6 +21,7 @@ import time
 import urllib.parse
 import urllib.request
 import zipfile
+from diagnostics import failure_category
 
 CHANNEL = 'Ahgarzon/tm-apk'
 SOURCE = 'git@github.com:Ahgarzon/tourmaps-mobile-ios.git'
@@ -53,12 +54,19 @@ def request(url, data=None, token=None):
 
 
 def run(label, args, cwd=None, env=None, timeout=1800, data=None):
-    with (LOG / (label + '.log')).open('ab') as log:
-        r = subprocess.run([str(x) for x in args], cwd=cwd, env=env,
-                           stdout=log, stderr=subprocess.STDOUT, timeout=timeout,
-                           input=data, text=data is not None)
+    file = LOG / (label + '.log')
+    try:
+        with file.open('ab') as log:
+            r = subprocess.run([str(x) for x in args], cwd=cwd, env=env,
+                               stdout=log, stderr=subprocess.STDOUT, timeout=timeout,
+                               input=data, text=data is not None)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(label+' timeout; no private arguments/output exposure') from None
     if r.returncode:
-        raise RuntimeError(label + ' failed; no APK promotion or private log exposure')
+        with file.open('rb') as log:
+            log.seek(max(0, file.stat().st_size-1024*1024))
+            category = failure_category(log.read().decode('utf-8', errors='replace'))
+        raise RuntimeError(label+' failed ['+category+']; no APK promotion or private log exposure')
 
 
 def output(args, cwd=None, env=None):
@@ -149,6 +157,7 @@ def resources():
 
 
 def prepare_tools():
+    print('Preparing pinned cloud tools; free runner disk GiB='+str(round(shutil.disk_usage(ROOT).free/1024**3, 1)), flush=True)
     metadata = request('https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json')
     matches = [x for x in metadata['releases'] if x['version'] == FLUTTER and x['channel'] == 'stable']
     if len(matches) != 1 or not re.fullmatch(r'[a-f0-9]{64}', matches[0]['sha256']):
@@ -204,6 +213,7 @@ def prepare_source(source):
 def native_smoke(apk, env, activity):
     """Dedicated ephemeral VM/AVD only; update the old pilot without uninstall."""
     lease('check', 'qa-isolated')
+    print('APK identity/signature passed; preparing isolated native update/launch QA. Free disk GiB='+str(round(shutil.disk_usage(ROOT).free/1024**3, 1)), flush=True)
     sdk = Path(env['ANDROID_HOME'])
     image = 'system-images;android-35;google_apis;x86_64'
     run('emulator-sdk', [sdk / 'cmdline-tools/latest/bin/sdkmanager', 'emulator', image], env=env)
@@ -304,7 +314,7 @@ def main():
         number = maximum + 1
         env = prepare_source(source)
         flutter = ROOT / 'flutter/bin/flutter'
-        print('Source tests and error-level analysis passed; compiling compatible Android pilot.')
+        print('Source tests and error-level analysis passed; compiling compatible Android pilot. Free disk GiB='+str(round(shutil.disk_usage(ROOT).free/1024**3, 1)), flush=True)
         lease('check')
         run('apk-build', [flutter, 'build', 'apk', '--release', '--no-pub', '--build-name='+VERSION,
             '--build-number='+str(number), '--dart-define=ENABLE_TOURMAPS_JARVIS=true',
