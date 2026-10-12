@@ -47,6 +47,17 @@ class Leases(unittest.TestCase):
         with self.assertRaises(ValueError):
             coord.transition(state, 100, 'acquire')
 
+    def test_cloud_qa_is_independent_and_cannot_steal_other_host_qa(self):
+        state, r = coord.transition(self.state(), 100, 'acquire')
+        state, qa = coord.transition(state, 101, 'acquire', domain='qa-isolated')
+        self.assertEqual(state['domains']['release-android']['lease'], r['lease'])
+        self.assertNotEqual(qa['lease'], r['lease'])
+        changed, busy = coord.transition(state, 102, 'acquire', domain='qa-isolated')
+        self.assertIsNone(changed)
+        self.assertTrue(busy['busy'])
+        with self.assertRaises(ValueError):
+            coord.transition(state, 103, 'acquire', domain='brain')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -52,10 +52,12 @@ def valid(state):
             raise ValueError('Unexpected central lease')
 
 
-def transition(state, now, action, lease=None):
+def transition(state, now, action, lease=None, domain='release-android'):
+    if domain not in {'release-android', 'qa-isolated'}:
+        raise ValueError('Only Android release or isolated QA can be reserved')
     valid(state)
     state = copy.deepcopy(state)
-    active = state['domains'].get('release-android')
+    active = state['domains'].get(domain)
     alive = active is not None and active['expires'] > now
     if action == 'acquire':
         if alive:
@@ -63,17 +65,17 @@ def transition(state, now, action, lease=None):
         state['counter'] += 1
         active = {'owner': OWNER, 'task': 'android-central-builder',
                   'lease': uuid.uuid4().hex, 'fence': state['counter'], 'expires': now + 1800}
-        state['domains']['release-android'] = active
+        state['domains'][domain] = active
     else:
         if not alive or active['owner'] != OWNER or active['lease'] != lease:
             raise ValueError('Lease expired or not owned; no publication')
         if action == 'renew':
             active['expires'] = now + 1800
         elif action == 'release':
-            state['domains']['release-android'] = None
+            state['domains'][domain] = None
         elif action != 'check':
             raise ValueError('Unknown transition')
-    return state, {'busy': False, 'domain': 'release-android', **active, 'server_time': now}
+    return state, {'busy': False, 'domain': domain, **active, 'server_time': now}
 
 
 def main():
@@ -81,6 +83,7 @@ def main():
     p.add_argument('action', choices=['acquire', 'renew', 'check', 'release'])
     p.add_argument('--repo', type=Path, required=True)
     p.add_argument('--lease-file', type=Path, required=True)
+    p.add_argument('--domain', choices=['release-android', 'qa-isolated'], default='release-android')
     a = p.parse_args()
     repo = a.repo.resolve()
     if not (repo / 'HEAD').exists():
@@ -96,7 +99,7 @@ def main():
         git(repo, 'fetch', '--quiet', '--depth=1', 'origin', f'refs/heads/{BRANCH}')
         tip = git(repo, 'rev-parse', 'FETCH_HEAD')
         state = json.loads(git(repo, 'show', f'{tip}:{FILE}'))
-        changed, receipt = transition(state, server_time(), a.action, lease)
+        changed, receipt = transition(state, server_time(), a.action, lease, a.domain)
         if changed is None or a.action == 'check':
             print(json.dumps(receipt))
             return 0
