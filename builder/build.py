@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from diagnostics import failure_category
-from native_qa import native_output, wait_until_booted
+from native_qa import native_output, wait_until_booted, diagnose_crash
 from team_requests import check_environment
 
 CHANNEL = 'Ahgarzon/tm-apk'
@@ -254,7 +254,11 @@ def native_smoke(apk, env, activity):
         if 'Status: ok' not in launch or 'Error:' in launch:
             raise RuntimeError('Native launch failed; no publication')
         time.sleep(20)
-        pid = native_output([*adb, 'shell', 'pidof', PACKAGE], env, 'application-process')
+        try:
+            pid = native_output([*adb, 'shell', 'pidof', PACKAGE], env, 'application-process')
+        except RuntimeError:
+            diagnose_crash(adb, env)
+            raise
         if not re.fullmatch(r'\d+', pid):
             raise RuntimeError('Native app did not remain alive')
         crashes = native_output([*adb, 'logcat', '-d', '-b', 'crash', '--pid='+pid], env, 'crash-check')

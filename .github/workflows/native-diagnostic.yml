@@ -1,0 +1,27 @@
+name: TourMaps isolated baseline diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    concurrency:
+      group: tourmaps-android-pilot
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Get reviewed public diagnostic only
+        env:
+          BUILDER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git remote add origin https://github.com/Ahgarzon/tm-apk.git
+          git fetch --quiet --depth=1 origin "$BUILDER_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+          python3 -m unittest discover -s builder -p 'test_*.py'
+      - name: Probe public baselines; no private source or signing secrets
+        env:
+          TOURMAPS_COORDINATION_SSH_KEY: ${{ secrets.TOURMAPS_COORDINATION_SSH_KEY }}
+        run: python3 builder/probe.py
