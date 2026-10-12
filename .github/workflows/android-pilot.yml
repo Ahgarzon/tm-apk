@@ -1,0 +1,41 @@
+name: TourMaps central Android pilot
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Optional exact integrated source SHA; rejects stale requests
+        required: false
+        type: string
+  schedule:
+    - cron: '*/10 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: tourmaps-android-pilot
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Get only this public builder, pinned to the dispatched workflow revision
+        env:
+          BUILDER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git remote add origin https://github.com/Ahgarzon/tm-apk.git
+          git fetch --quiet --depth=1 origin "$BUILDER_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+          python3 -m unittest discover -s builder -p 'test_*.py'
+      - name: Build reviewed private source, verify existing pilot signature, publish candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOURMAPS_SOURCE_SSH_KEY: ${{ secrets.TOURMAPS_SOURCE_SSH_KEY }}
+          TOURMAPS_COORDINATION_SSH_KEY: ${{ secrets.TOURMAPS_COORDINATION_SSH_KEY }}
+          TOURMAPS_FIREBASE_ANDROID_JSON: ${{ secrets.TOURMAPS_FIREBASE_ANDROID_JSON }}
+          TOURMAPS_MAPS_ANDROID_KEY: ${{ secrets.TOURMAPS_MAPS_ANDROID_KEY }}
+          TOURMAPS_PILOT_KEYSTORE_B64: ${{ secrets.TOURMAPS_PILOT_KEYSTORE_B64 }}
+          REQUESTED_SOURCE: ${{ inputs.source_commit }}
+          GITHUB_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 builder/build.py
