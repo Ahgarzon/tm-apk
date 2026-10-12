@@ -15,3 +15,9 @@ class Diagnostics(unittest.TestCase):
     def test_downgrade_and_network_are_distinct(self):
         self.assertEqual(failure_category('INSTALL_FAILED_VERSION_DOWNGRADE'), 'android-version-downgrade')
         self.assertEqual(failure_category('Could not resolve private dependency'), 'dependency-network-or-resolution')
+
+    def test_adb_failures_are_fixed_labels_without_private_text(self):
+        for text, expected in [('device offline hidden-token', 'adb-device-offline'),
+                               ('device not found /private/path', 'adb-device-unavailable'),
+                               ('device unauthorized hidden-token', 'adb-device-unauthorized')]:
+            self.assertEqual(failure_category(text), expected)
