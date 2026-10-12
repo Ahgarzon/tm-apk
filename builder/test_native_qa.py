@@ -11,6 +11,13 @@ def result(code=0, stdout='', stderr=''):
 
 
 class NativeQA(unittest.TestCase):
+    def test_crash_vocabulary_never_returns_private_fragments(self):
+        labels = native_qa.crash_labels('FATAL EXCEPTION private-key /private/code '
+            'UnsatisfiedLinkError dlopen failed libjnidispatch.so')
+        self.assertEqual(labels, ['java-fatal', 'native-link-error',
+                                  'native-library-load-failed', 'jna-library'])
+        self.assertEqual(native_qa.crash_labels('secret-token'), [])
+
     def setUp(self):
         self.adb = ['adb', '-s', 'isolated-emulator']
         self.emulator = Mock()
