@@ -50,7 +50,7 @@ def probe(label, url, sha, cert, env, sdk, image):
                                 env=env, capture_output=True, text=True, timeout=30)
         print('Known public baseline '+label+': process_alive='+str(
             result.returncode == 0 and bool(re.fullmatch(r'\d+', result.stdout.strip()))), flush=True)
-        diagnose_crash(adb, env)
+        diagnose_crash(adb, env, label)
     finally:
         with contextlib.suppress(Exception):
             subprocess.run([str(x) for x in [*adb, 'emu', 'kill']], env=env,
