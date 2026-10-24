@@ -1,0 +1,49 @@
+name: TourMaps synthetic SQL context diagnostic
+run-name: SQL context ${{ inputs.nonce }}
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Reviewed public harness commit
+        required: true
+        type: string
+      nonce:
+        description: Controller journal nonce (32 lowercase hex)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: tourmaps-synthetic-sql-context
+  cancel-in-progress: false
+jobs:
+  diagnostic:
+    if: >-
+      github.repository == 'Ahgarzon/tm-apk' &&
+      github.event.repository.private == false &&
+      github.actor_id == '114458437' &&
+      inputs.expected_sha == github.sha
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      TM_EXPECTED_SHA: ${{ inputs.expected_sha }}
+      TM_NONCE: ${{ inputs.nonce }}
+      TM_PUBLIC: ${{ !github.event.repository.private }}
+    steps:
+      - name: Obtain only the reviewed public harness
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:TM_EXPECTED_SHA -cnotmatch '^[a-f0-9]{40}$' -or $env:TM_NONCE -cnotmatch '^[a-f0-9]{32}$') { throw 'Invalid request' }
+          git init --quiet .
+          if ($LASTEXITCODE) { throw 'git init failed' }
+          git fetch --quiet --depth=1 https://github.com/Ahgarzon/tm-apk.git $env:TM_EXPECTED_SHA
+          if ($LASTEXITCODE) { throw 'public fetch failed' }
+          git checkout --quiet --detach FETCH_HEAD
+          if ($LASTEXITCODE -or (git rev-parse HEAD) -cne $env:TM_EXPECTED_SHA) { throw 'Source mismatch' }
+      - name: Test request boundaries without starting SQL
+        shell: powershell
+        run: ./builder/test_sql_context_policy.ps1
+      - name: Diagnose four synthetic contexts on an owned LocalDB instance
+        shell: powershell
+        run: ./builder/sql_context_probe.ps1
