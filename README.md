@@ -1,6 +1,17 @@
 # tourmaps-android-downloads
 Descargas publicas de la APK de pruebas de TourMaps, sin credenciales ni codigo privado.
 
+## Diagnóstico SQL sintético
+
+[Procedimiento y límites](builder/SQL-CONTEXT-DIAGNOSTIC.md): ejecución manual
+preparada para un runner Windows estándar gratuito de este repo público.
+La plantilla `builder/sql-context-diagnostic.workflow.yml.example` está inactiva:
+falta renovar el permiso OAuth `workflow` antes de crear el flujo y ejecutarlo.
+Sólo una instancia
+LocalDB nueva con datos sintéticos; sin secretos, fuente privada, respaldo real,
+artefactos, distribución o cambios en los servidores. Su recibo no acepta la
+aplicación completa ni una entrega TestFlight.
+
 ## Constructor central
 
 El workflow `TourMaps central Android pilot` utiliza un runner Linux estándar
