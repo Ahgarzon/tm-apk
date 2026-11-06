@@ -28,7 +28,7 @@ from channels import CHANNELS, next_number, version_name, identity
 
 CHANNEL = 'Ahgarzon/tm-apk'
 SOURCE = 'git@github.com:Ahgarzon/tourmaps-mobile-ios.git'
-BRANCH = 'codex/testflight-beta'
+BRANCH = 'codex/ios-map-transfer-integrity-mac-20261027'
 CERT = '79f0e7b026ef0634ad7b8b7f37fc07f40aac874897efa1ea0e0593bc05a8b8d5'
 PACKAGE = 'com.gopluss.tourmapsgo'
 FLUTTER = '3.47.5'
