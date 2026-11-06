@@ -204,7 +204,12 @@ def prepare_source(source):
     (SOURCE_DIR / 'android/app/google-services.json').write_text(json.dumps(firebase))
     flutter = ROOT / 'flutter/bin/flutter'
     run('dependencies', [flutter, 'pub', 'get', '--enforce-lockfile'], SOURCE_DIR, env)
-    run('flutter-tests', [flutter, 'test', '--no-pub'], SOURCE_DIR, env)
+    # Widget tests exercise iOS too. Its transport gate rejects the Android-only
+    # HTTP default before the mocked request runs, so supply the dedicated HTTPS
+    # API only to the test compiler. The APK's own build settings are unchanged.
+    run('flutter-tests', [flutter, 'test', '--no-pub',
+                          '--dart-define=TOURMAPS_API_BASE_URL=https://tourmaps-api-62-171-153-218.sslip.io'],
+        SOURCE_DIR, env)
     run('node-tests', ['node', '--test', *sorted(glob.glob(str(SOURCE_DIR / 'tourmaps-ci/ios/*.test.mjs')))], SOURCE_DIR, env)
     native_tests = ROOT / 'permission-unit-tests'
     native_tests.mkdir(mode=0o700, exist_ok=True)
