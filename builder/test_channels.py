@@ -11,6 +11,11 @@ class Channels(unittest.TestCase):
         self.assertLess(code.index("run('microphone-policy-tests'"), code.index("run('apk-build'"))
         self.assertIn("'native_permission_policy': 'passed'", code)
 
+    def test_release_uses_the_dedicated_api_instead_of_a_legacy_default(self):
+        code = (Path(__file__).parent / 'build.py').read_text()
+        command = code[code.index("run('apk-build'"):code.index("SOURCE_DIR, env)", code.index("run('apk-build'"))]
+        self.assertIn('--dart-define=TOURMAPS_API_BASE_URL=https://tourmaps-api-62-171-153-218.sslip.io', command)
+
     def test_signature_channels_are_not_interchangeable(self):
         self.assertNotEqual(CHANNELS['pilot']['cert'], CHANNELS['original']['cert'])
         self.assertEqual(CHANNELS['pilot']['compatible_with'], 54)

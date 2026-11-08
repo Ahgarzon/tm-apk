@@ -344,6 +344,7 @@ def main():
         lease('check')
         run('apk-build', [flutter, 'build', 'apk', '--release', '--no-pub', '--build-name='+version,
             '--build-number='+str(number), '--dart-define=ENABLE_TOURMAPS_JARVIS=true',
+            '--dart-define=TOURMAPS_API_BASE_URL=https://tourmaps-api-62-171-153-218.sslip.io',
             '--dart-define=TOURMAPS_JARVIS_URL=https://jarvis.angelszs.site/api/v1/tourist/chat'], SOURCE_DIR, env)
         apk = SOURCE_DIR / 'build/app/outputs/flutter-apk/app-release.apk'
         build_tools = Path(env['ANDROID_HOME']) / 'build-tools/36.0.0'
