@@ -25,6 +25,7 @@ from diagnostics import failure_category
 from native_qa import native_output, wait_until_booted, diagnose_crash, assert_no_target_crash
 from team_requests import check_environment
 from channels import CHANNELS, next_number, version_name, identity
+from source_gate import verify_dedicated_api_source
 
 CHANNEL = 'Ahgarzon/tm-apk'
 SOURCE = 'git@github.com:Ahgarzon/tourmaps-mobile-ios.git'
@@ -186,6 +187,7 @@ def prepare_source(source):
     run('clone', ['git', 'clone', '--quiet', '--depth=1', '--single-branch', '--branch', BRANCH, SOURCE, SOURCE_DIR], env=SOURCE_ENV)
     if output(['git', 'rev-parse', 'HEAD'], cwd=SOURCE_DIR) != source:
         raise ValueError('Source changed during checkout; retry a fresh cycle')
+    verify_dedicated_api_source(SOURCE_DIR)
     resources()
     run('linux-filemode', ['git', 'config', 'core.fileMode', 'false'], SOURCE_DIR)
     env = prepare_tools()
