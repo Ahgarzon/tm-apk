@@ -1,6 +1,8 @@
 import unittest
+import tempfile
 from pathlib import Path
 from channels import CHANNELS, identity, next_number, version_name
+from source_gate import verify_dedicated_api_source
 
 
 class Channels(unittest.TestCase):
@@ -15,6 +17,22 @@ class Channels(unittest.TestCase):
         code = (Path(__file__).parent / 'build.py').read_text()
         command = code[code.index("run('apk-build'"):code.index("SOURCE_DIR, env)", code.index("run('apk-build'"))]
         self.assertIn('--dart-define=TOURMAPS_API_BASE_URL=https://tourmaps-api-62-171-153-218.sslip.io', command)
+
+    def test_release_rejects_source_that_ignores_the_https_setting(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            adapter = root / 'lib/services/tourmaps_api_config.dart'
+            adapter.parent.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, 'select the dedicated'):
+                adapter.write_text('const old = "http://94.72.117.162:3001";')
+                verify_dedicated_api_source(root)
+            adapter.write_text("const api = 'TOURMAPS_API_BASE_URL'; const fallback = 'https://tourmaps-api-62-171-153-218.sslip.io';")
+            other = root / 'lib/old.dart'
+            other.write_text("const old = 'http://94.72.117.162:3001';")
+            with self.assertRaisesRegex(ValueError, 'retired cleartext'):
+                verify_dedicated_api_source(root)
+            other.write_text('const current = 1;')
+            verify_dedicated_api_source(root)
 
     def test_signature_channels_are_not_interchangeable(self):
         self.assertNotEqual(CHANNELS['pilot']['cert'], CHANNELS['original']['cert'])
