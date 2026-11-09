@@ -26,6 +26,7 @@ from native_qa import native_output, wait_until_booted, diagnose_crash, assert_n
 from team_requests import check_environment
 from channels import CHANNELS, next_number, version_name, identity
 from source_gate import verify_dedicated_api_source
+from realtime_config import android_realtime_defines
 
 CHANNEL = 'Ahgarzon/tm-apk'
 SOURCE = 'git@github.com:Ahgarzon/tourmaps-mobile-ios.git'
@@ -324,6 +325,7 @@ def main():
         return
     if os.environ.get('PREFLIGHT_ONLY', '').lower() == 'true':
         prepare_source(source)
+        android_realtime_defines(json.loads((SOURCE_DIR / 'android/app/google-services.json').read_text()))
         print('Cloud toolchains, existing pilot certificate and source tests passed. PREFLIGHT ONLY: no APK built, published or sent.')
         return
     receipt = lease('acquire')
@@ -340,6 +342,8 @@ def main():
         QA_OWNED = True
         number = next_number(releases+other)
         env = prepare_source(source)
+        realtime_defines = android_realtime_defines(
+            json.loads((SOURCE_DIR / 'android/app/google-services.json').read_text()))
         version = version_name((SOURCE_DIR / 'pubspec.yaml').read_text(), number)
         flutter = ROOT / 'flutter/bin/flutter'
         print('Source tests and error-level analysis passed; compiling compatible Android pilot. Free disk GiB='+str(round(shutil.disk_usage(ROOT).free/1024**3, 1)), flush=True)
@@ -347,7 +351,8 @@ def main():
         run('apk-build', [flutter, 'build', 'apk', '--release', '--no-pub', '--build-name='+version,
             '--build-number='+str(number), '--dart-define=ENABLE_TOURMAPS_JARVIS=true',
             '--dart-define=TOURMAPS_API_BASE_URL=https://tourmaps-api-62-171-153-218.sslip.io',
-            '--dart-define=TOURMAPS_JARVIS_URL=https://jarvis.angelszs.site/api/v1/tourist/chat'], SOURCE_DIR, env)
+            '--dart-define=TOURMAPS_JARVIS_URL=https://jarvis.angelszs.site/api/v1/tourist/chat',
+            *realtime_defines], SOURCE_DIR, env)
         apk = SOURCE_DIR / 'build/app/outputs/flutter-apk/app-release.apk'
         build_tools = Path(env['ANDROID_HOME']) / 'build-tools/36.0.0'
         bundle = json.loads(os.environ['TOURMAPS_ORIGINAL_SIGNING_JSON'])
