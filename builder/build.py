@@ -46,8 +46,8 @@ FAILED_RENEWAL = threading.Event()
 QA_OWNED = False
 
 
-def request(url, data=None, token=None):
-    headers = {'User-Agent': 'TourMaps-central-builder', 'Accept': 'application/vnd.github+json'}
+def request(url, data=None, token=None, accept='application/vnd.github+json'):
+    headers = {'User-Agent': 'TourMaps-central-builder', 'Accept': accept}
     if token:
         headers['Authorization'] = 'Bearer ' + token
     if data is not None:
@@ -310,14 +310,18 @@ def main():
     releases = request(f'https://api.github.com/repos/{CHANNEL}/releases?per_page=100', token=os.environ['GH_TOKEN'])
     other = request('https://api.github.com/repos/jamesvidaltourmaps/tourmaps-apk/releases?per_page=100')
     ready = set()
-    for release in releases:
+    # Releases are returned newest first. The current source can only have a
+    # valid pair among the most recent releases; older manifests describe
+    # superseded sources and needlessly exercise the asset CDN.
+    for release in releases[:4]:
         if release['draft']:
             continue
         for asset in release['assets']:
             if asset['name'] in {'tourmaps-release.json', 'map54-manifest.json'}:
-                manifest = request(asset['browser_download_url'])
+                manifest = request(asset['url'], token=os.environ['GH_TOKEN'], accept='application/octet-stream')
                 for name, config in CHANNELS.items():
-                    if (manifest.get('source_commit') == source and manifest.get('signing', {}).get('certificate_sha256') == config['cert']
+                    if (manifest.get('source_commit') == source and manifest.get('realtime_authority') == 'v2'
+                            and manifest.get('signing', {}).get('certificate_sha256') == config['cert']
                             and manifest.get('qa', {}).get('native_runtime_smoke') is True):
                         ready.add(name)
     if ready == set(CHANNELS):
@@ -390,6 +394,7 @@ def main():
             manifest = {'application': 'TourMaps GO+', 'platform': 'android', 'version': version,
                 'build_number': number, 'package': PACKAGE, 'source_commit': source,
                 'clean_tree_at_build': True, 'channel': channel+'-not-Play-Store',
+                'realtime_authority': 'v2',
                 'builder_run': os.environ['GITHUB_RUN_URL'],
                 'signing': {'signature_verified': True, 'certificate_sha256': cert,
                             'compatible_with': CHANNELS[channel]['compatible_with']},
