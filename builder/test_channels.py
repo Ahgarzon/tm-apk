@@ -1,11 +1,42 @@
 import unittest
 import tempfile
+import json
 from pathlib import Path
 from channels import CHANNELS, identity, next_number, version_name
 from source_gate import verify_dedicated_api_source
+from realtime_config import android_realtime_defines
 
 
 class Channels(unittest.TestCase):
+    def test_android_release_uses_the_same_firebase_event_authority_as_ios(self):
+        config = {
+            'project_info': {
+                'project_id': 'tourmapspopayan',
+                'firebase_url': 'https://tourmapspopayan-default-rtdb.firebaseio.com',
+            },
+            'client': [{
+                'client_info': {'android_client_info': {'package_name': 'com.gopluss.tourmapsgo'}},
+                'api_key': [{'current_key': 'AIza' + 'a' * 35}],
+            }],
+        }
+        defines = android_realtime_defines(config)
+        self.assertIn('--dart-define=TOURMAPS_REALTIME_AUTHORITY_MODE=v2', defines)
+        self.assertIn('--dart-define=TOURMAPS_TOURIST_EVENT_V2=true', defines)
+        self.assertIn('--dart-define=TOURMAPS_FIREBASE_PROJECT_ID=tourmapspopayan', defines)
+        self.assertIn('--dart-define=TOURMAPS_FIREBASE_DATABASE_URL=https://tourmapspopayan-default-rtdb.firebaseio.com', defines)
+        self.assertIn('--dart-define=TOURMAPS_FIREBASE_API_KEY=' + 'AIza' + 'a' * 35, defines)
+        source = (Path(__file__).parent / 'build.py').read_text()
+        command = source[source.index("run('apk-build'"):source.index('SOURCE_DIR, env)', source.index("run('apk-build'"))]
+        self.assertIn('*realtime_defines', command)
+        for name, bad_value in [('project_id', 'another-project'), ('firebase_url', 'http://tourmapspopayan-default-rtdb.firebaseio.com')]:
+            broken = json.loads(json.dumps(config))
+            broken['project_info'][name] = bad_value
+            with self.assertRaises(ValueError):
+                android_realtime_defines(broken)
+        config['client'][0]['api_key'][0]['current_key'] = 'invalid'
+        with self.assertRaises(ValueError):
+            android_realtime_defines(config)
+
     def test_native_permission_regression_is_required_before_compilation(self):
         code = (Path(__file__).parent / 'build.py').read_text()
         self.assertIn("run('microphone-policy-compile'", code)
