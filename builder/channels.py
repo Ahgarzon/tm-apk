@@ -17,7 +17,7 @@ def next_number(releases):
     # +56 was reserved for James' local original candidate before this channel.
     maximum = 56
     for release in releases:
-        match = re.fullmatch(r'v[0-9.]+-(?:tourmaps-pilot|tourmaps-original|original)(\d+)', release['tag_name'])
+        match = re.fullmatch(r'v[0-9.]+-(?:tourmaps-pilot|tourmaps-original|tourmaps-store|original)(\d+)', release['tag_name'])
         if match:
             maximum = max(maximum, int(match[1]))
     return maximum+1

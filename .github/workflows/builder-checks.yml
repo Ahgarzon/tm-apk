@@ -1,0 +1,19 @@
+name: Review public builder guards
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check source, lease, signing and 16 KiB guards without app secrets
+        run: |
+          set -euo pipefail
+          export STORE_TEST_JAVA_BIN="$JAVA_HOME_17_X64/bin"
+          test -x "$STORE_TEST_JAVA_BIN/jarsigner"
+          python3 -m unittest discover -s builder -p 'test_*.py'
