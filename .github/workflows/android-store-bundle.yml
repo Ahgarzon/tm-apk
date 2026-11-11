@@ -1,0 +1,42 @@
+name: TourMaps Android store upload draft
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact current integrated source SHA; rejects stale source
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  bundle:
+    if: github.actor_id == '114458437' || github.actor_id == '340242138'
+    concurrency:
+      group: tourmaps-android-store-bundle
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Read only the reviewed public builder at this workflow revision
+        env:
+          BUILDER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          git remote add origin https://github.com/Ahgarzon/tm-apk.git
+          git fetch --quiet --depth=1 origin "$BUILDER_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+          export STORE_TEST_JAVA_BIN="$JAVA_HOME_17_X64/bin"
+          test -x "$STORE_TEST_JAVA_BIN/jarsigner"
+          python3 -m unittest discover -s builder -p 'test_*.py'
+      - name: Verify original-signed AAB and universal APK; keep a draft only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOURMAPS_SOURCE_SSH_KEY: ${{ secrets.TOURMAPS_SOURCE_SSH_KEY }}
+          TOURMAPS_COORDINATION_SSH_KEY: ${{ secrets.TOURMAPS_COORDINATION_SSH_KEY }}
+          TOURMAPS_FIREBASE_ANDROID_JSON: ${{ secrets.TOURMAPS_FIREBASE_ANDROID_JSON }}
+          TOURMAPS_MAPS_ANDROID_KEY: ${{ secrets.TOURMAPS_MAPS_ANDROID_KEY }}
+          TOURMAPS_ORIGINAL_SIGNING_JSON: ${{ secrets.TOURMAPS_ORIGINAL_SIGNING_JSON }}
+          REQUESTED_SOURCE: ${{ inputs.source_commit }}
+          GITHUB_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 builder/build_store_bundle.py

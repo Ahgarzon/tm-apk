@@ -161,7 +161,7 @@ def resources():
     (SOURCE_DIR / 'android/gradlew').chmod(0o755)
 
 
-def prepare_tools():
+def prepare_tools(pilot_signing=True):
     print('Preparing pinned cloud tools; free runner disk GiB='+str(round(shutil.disk_usage(ROOT).free/1024**3, 1)), flush=True)
     metadata = request('https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json')
     matches = [x for x in metadata['releases'] if x['version'] == FLUTTER and x['channel'] == 'stable']
@@ -181,27 +181,28 @@ def prepare_tools():
     env['PATH'] = str(ROOT / 'flutter/bin') + ':' + env['JAVA_HOME'] + '/bin:' + env['PATH']
     run('sdk', [manager, 'platforms;android-36', 'build-tools;36.0.0', 'ndk;28.2.13676358'], env=env)
     env['ORG_GRADLE_PROJECT_TOURMAPS_MAPS_API_KEY'] = os.environ['TOURMAPS_MAPS_ANDROID_KEY']
-    env['ORG_GRADLE_PROJECT_TOURMAPS_PILOT_SIGNING'] = 'true'
+    env['ORG_GRADLE_PROJECT_TOURMAPS_PILOT_SIGNING'] = 'true' if pilot_signing else 'false'
     return env
 
 
-def prepare_source(source):
+def prepare_source(source, pilot_signing=True):
     run('clone', ['git', 'clone', '--quiet', '--depth=1', '--single-branch', '--branch', BRANCH, SOURCE, SOURCE_DIR], env=SOURCE_ENV)
     if output(['git', 'rev-parse', 'HEAD'], cwd=SOURCE_DIR) != source:
         raise ValueError('Source changed during checkout; retry a fresh cycle')
     verify_dedicated_api_source(SOURCE_DIR)
     resources()
     run('linux-filemode', ['git', 'config', 'core.fileMode', 'false'], SOURCE_DIR)
-    env = prepare_tools()
+    env = prepare_tools(pilot_signing=pilot_signing)
     android = ROOT / '.android'
     android.mkdir(mode=0o700, exist_ok=True)
-    (android / 'debug.keystore').write_bytes(base64.b64decode(os.environ['TOURMAPS_PILOT_KEYSTORE_B64'], validate=True))
-    (android / 'debug.keystore').chmod(0o600)
-    cert = output([Path(env['JAVA_HOME']) / 'bin/keytool', '-J-Duser.language=en', '-list', '-v',
-                   '-keystore', android / 'debug.keystore', '-storepass', 'android', '-alias', 'androiddebugkey'], env=env)
-    digest = re.search(r'SHA256:\s*([A-Fa-f0-9:]+)', cert)
-    if not digest or digest[1].replace(':', '').lower() != CERT:
-        raise ValueError('Existing pilot certificate differs; no replacement key generated')
+    if pilot_signing:
+        (android / 'debug.keystore').write_bytes(base64.b64decode(os.environ['TOURMAPS_PILOT_KEYSTORE_B64'], validate=True))
+        (android / 'debug.keystore').chmod(0o600)
+        cert = output([Path(env['JAVA_HOME']) / 'bin/keytool', '-J-Duser.language=en', '-list', '-v',
+                       '-keystore', android / 'debug.keystore', '-storepass', 'android', '-alias', 'androiddebugkey'], env=env)
+        digest = re.search(r'SHA256:\s*([A-Fa-f0-9:]+)', cert)
+        if not digest or digest[1].replace(':', '').lower() != CERT:
+            raise ValueError('Existing pilot certificate differs; no replacement key generated')
     firebase = json.loads(os.environ['TOURMAPS_FIREBASE_ANDROID_JSON'])
     if PACKAGE not in [x.get('client_info', {}).get('android_client_info', {}).get('package_name') for x in firebase.get('client', [])]:
         raise ValueError('Wrong Android Firebase client')
