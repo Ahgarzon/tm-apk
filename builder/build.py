@@ -27,6 +27,7 @@ from team_requests import check_environment
 from channels import CHANNELS, next_number, version_name, identity
 from source_gate import verify_dedicated_api_source
 from realtime_config import android_realtime_defines
+from release_notes import notification_summary
 
 CHANNEL = 'Ahgarzon/tm-apk'
 SOURCE = 'git@github.com:Ahgarzon/tourmaps-mobile-ios.git'
@@ -344,6 +345,15 @@ def main():
             print('Another authorized native QA owns its reservation; no duplicate build or publication.')
             return
         QA_OWNED = True
+        # The existing scoped coordination key can read this same brain repo.
+        # Only bounded JSON text is consumed; no retrieved program is executed.
+        notes_repo = ROOT / 'coordination.git'
+        notes_env = {**os.environ, **COORD_ENV}
+        output(['git', 'fetch', '--quiet', '--depth=1', 'origin',
+                'refs/heads/main:refs/remotes/origin/release-notes'], cwd=notes_repo, env=notes_env)
+        notes_commit = output(['git', 'rev-parse', 'refs/remotes/origin/release-notes'], cwd=notes_repo)
+        changes = notification_summary(output(['git', 'show',
+            notes_commit + ':releases/change-notes.json'], cwd=notes_repo), source)
         number = next_number(releases+other)
         env = prepare_source(source)
         realtime_defines = android_realtime_defines(
@@ -396,6 +406,7 @@ def main():
                 'clean_tree_at_build': True, 'channel': channel+'-not-Play-Store',
                 'realtime_authority': 'v2',
                 'builder_run': os.environ['GITHUB_RUN_URL'],
+                'notification_summary': changes, 'notification_notes_commit': notes_commit,
                 'signing': {'signature_verified': True, 'certificate_sha256': cert,
                             'compatible_with': CHANNELS[channel]['compatible_with']},
                 'qa': {'flutter_tests': 'passed', 'node_tests': 'passed',
